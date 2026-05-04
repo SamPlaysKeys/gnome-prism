@@ -58,31 +58,21 @@ if [[ "${SKIP_INSTALL}" -eq 0 ]]; then
   fi
 fi
 
-if [[ "${SKIP_INSTALL}" -eq 0 ]]; then
-  if command -v apt-get >/dev/null 2>&1; then
-    if dpkg -s gnome-shell-extension-dash-to-panel >/dev/null 2>&1; then
-      echo "Package already installed: gnome-shell-extension-dash-to-panel"
-    else
-      if ! sudo apt-get update; then
-        echo "Warning: apt-get update failed (likely due to an unrelated repository)." >&2
-        echo "Continuing with cached package metadata..." >&2
-      fi
+install_dtp_from_extensions_gnome_org() {
+  echo "Trying extensions.gnome.org fallback..."
 
-      if ! sudo apt-get install -y gnome-shell-extension-dash-to-panel; then
-        echo "Apt install unavailable for gnome-shell-extension-dash-to-panel; trying extensions.gnome.org fallback..."
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "python3 is required for fallback installer." >&2
+    exit 1
+  fi
+  if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
+    echo "curl or wget is required for fallback installer." >&2
+    exit 1
+  fi
 
-        if ! command -v python3 >/dev/null 2>&1; then
-          echo "python3 is required for fallback installer." >&2
-          exit 1
-        fi
-        if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
-          echo "curl or wget is required for fallback installer." >&2
-          exit 1
-        fi
-
-        SHELL_MAJOR="$(gnome-shell --version | awk '{print $3}' | awk -F. '{print $1}')"
-        INFO_URL="https://extensions.gnome.org/extension-info/?uuid=${DTP_UUID}&shell_version=${SHELL_MAJOR}"
-        INFO_DATA="$(python3 - <<'PY' "${INFO_URL}"
+  SHELL_MAJOR="$(gnome-shell --version | awk '{print $3}' | awk -F. '{print $1}')"
+  INFO_URL="https://extensions.gnome.org/extension-info/?uuid=${DTP_UUID}&shell_version=${SHELL_MAJOR}"
+  INFO_DATA="$(python3 - <<'PY' "${INFO_URL}"
 import json
 import sys
 from urllib.request import urlopen
@@ -96,36 +86,36 @@ print(json.dumps({
 }))
 PY
 )"
-        DOWNLOAD_PATH="$(python3 - <<'PY' "${INFO_DATA}"
+  DOWNLOAD_PATH="$(python3 - <<'PY' "${INFO_DATA}"
 import json
 import sys
 print(json.loads(sys.argv[1]).get("download_url", ""))
 PY
 )"
-        INFO_UUID="$(python3 - <<'PY' "${INFO_DATA}"
+  INFO_UUID="$(python3 - <<'PY' "${INFO_DATA}"
 import json
 import sys
 print(json.loads(sys.argv[1]).get("uuid", ""))
 PY
 )"
-        if [[ -n "${INFO_UUID}" ]]; then
-          DTP_UUID="${INFO_UUID}"
-        fi
+  if [[ -n "${INFO_UUID}" ]]; then
+    DTP_UUID="${INFO_UUID}"
+  fi
 
-        if [[ -z "${DOWNLOAD_PATH}" ]]; then
-          echo "Could not resolve Dash to Panel download URL for GNOME Shell ${SHELL_MAJOR}." >&2
-          exit 1
-        fi
+  if [[ -z "${DOWNLOAD_PATH}" ]]; then
+    echo "Could not resolve Dash to Panel download URL for GNOME Shell ${SHELL_MAJOR}." >&2
+    exit 1
+  fi
 
-        TMP_ZIP="$(mktemp --suffix=.zip)"
-        trap 'rm -f "${TMP_ZIP}"' EXIT
-        if command -v curl >/dev/null 2>&1; then
-          curl -fL "https://extensions.gnome.org${DOWNLOAD_PATH}" -o "${TMP_ZIP}"
-        else
-          wget -qO "${TMP_ZIP}" "https://extensions.gnome.org${DOWNLOAD_PATH}"
-        fi
-        echo "Installing Dash to Panel from downloaded extension zip..."
-        python3 - <<'PY' "${TMP_ZIP}" "${HOME}"
+  TMP_ZIP="$(mktemp --suffix=.zip)"
+  trap 'rm -f "${TMP_ZIP}"' EXIT
+  if command -v curl >/dev/null 2>&1; then
+    curl -fL "https://extensions.gnome.org${DOWNLOAD_PATH}" -o "${TMP_ZIP}"
+  else
+    wget -qO "${TMP_ZIP}" "https://extensions.gnome.org${DOWNLOAD_PATH}"
+  fi
+  echo "Installing Dash to Panel from downloaded extension zip..."
+  python3 - <<'PY' "${TMP_ZIP}" "${HOME}"
 import json
 import os
 import sys
@@ -144,7 +134,7 @@ with zipfile.ZipFile(zip_path) as zf:
     os.makedirs(dest, exist_ok=True)
     zf.extractall(dest)
 PY
-        DTP_UUID="$(python3 - <<'PY' "${TMP_ZIP}"
+  DTP_UUID="$(python3 - <<'PY' "${TMP_ZIP}"
 import json
 import sys
 import zipfile
@@ -153,16 +143,50 @@ with zipfile.ZipFile(sys.argv[1]) as zf:
 print(metadata.get("uuid", "dash-to-panel@jderose9.github.com"))
 PY
 )"
-        DTP_INSTALLED_PATH="${HOME}/.local/share/gnome-shell/extensions/${DTP_UUID}"
+  DTP_INSTALLED_PATH="${HOME}/.local/share/gnome-shell/extensions/${DTP_UUID}"
 
-        if [[ -d "${DTP_INSTALLED_PATH}/schemas" ]] && command -v glib-compile-schemas >/dev/null 2>&1; then
-          glib-compile-schemas "${DTP_INSTALLED_PATH}/schemas" || true
-        fi
+  if [[ -d "${DTP_INSTALLED_PATH}/schemas" ]] && command -v glib-compile-schemas >/dev/null 2>&1; then
+    glib-compile-schemas "${DTP_INSTALLED_PATH}/schemas" || true
+  fi
+}
+
+if [[ "${SKIP_INSTALL}" -eq 0 ]]; then
+  DTP_PKG_INSTALLED=false
+
+  if command -v apt-get >/dev/null 2>&1; then
+    # Debian/Ubuntu
+    if dpkg -s gnome-shell-extension-dash-to-panel >/dev/null 2>&1; then
+      echo "Package already installed: gnome-shell-extension-dash-to-panel"
+      DTP_PKG_INSTALLED=true
+    else
+      if ! sudo apt-get update; then
+        echo "Warning: apt-get update failed (likely due to an unrelated repository)." >&2
+        echo "Continuing with cached package metadata..." >&2
+      fi
+
+      if sudo apt-get install -y gnome-shell-extension-dash-to-panel; then
+        DTP_PKG_INSTALLED=true
+      else
+        echo "apt install failed for gnome-shell-extension-dash-to-panel."
+        install_dtp_from_extensions_gnome_org
+      fi
+    fi
+  elif command -v dnf >/dev/null 2>&1; then
+    # Fedora/RHEL
+    if rpm -q gnome-shell-extension-dash-to-panel >/dev/null 2>&1; then
+      echo "Package already installed: gnome-shell-extension-dash-to-panel"
+      DTP_PKG_INSTALLED=true
+    else
+      if sudo dnf install -y gnome-shell-extension-dash-to-panel; then
+        DTP_PKG_INSTALLED=true
+      else
+        echo "dnf install failed for gnome-shell-extension-dash-to-panel."
+        install_dtp_from_extensions_gnome_org
       fi
     fi
   else
-    echo "Unsupported package manager. Install Dash to Panel manually, then rerun with --skip-install." >&2
-    exit 1
+    echo "No supported package manager found (apt or dnf). Trying extensions.gnome.org..."
+    install_dtp_from_extensions_gnome_org
   fi
 fi
 
@@ -371,9 +395,6 @@ override = f"""
 {begin}
 #dashtopanelTaskbar .dash-item-container .overview-tile .dtp-container,
 #dashtopanelTaskbar .dash-item-container .show-apps {{
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
   min-width: 50px !important;
   min-height: 50px !important;
   border-top: 1px solid #bda7f0 !important;
@@ -418,14 +439,11 @@ override = f"""
   icon-size: 7px !important;
   padding: 7px !important;
   margin: 0 !important;
-  y-align: center !important;
-  x-align: center !important;
   animation: none !important;
 }}
 
 #dashtopanelTaskbar .dash-item-container .overview-tile .dtp-container,
 #dashtopanelTaskbar .dash-item-container .show-apps {{
-  x-align: center !important;
   transition:
     border-color 120ms ease-out,
     box-shadow 120ms ease-out,
@@ -1022,16 +1040,16 @@ if height is not None:
     # stronger upward nudge so icons appear optically centered.
     # Zach's 13\" laptop panel is 2880x1920; give it a stronger lift.
     if height <= 900:
-        icon_offset = -4
-    elif height <= 1200:
-        icon_offset = -3
-    elif 1900 <= height <= 2000:
         icon_offset = -5
+    elif height <= 1200:
+        icon_offset = -4
+    elif 1900 <= height <= 2000:
+        icon_offset = -6
     else:
-        icon_offset = -2
+        icon_offset = -3
 else:
     # Fallback that matches the original development machine feel.
-    icon_offset = -2
+    icon_offset = -3
 
 start = "    _setAppIconPadding() {\n"
 end = "    _setAppIconStyle() {\n"
@@ -1215,8 +1233,8 @@ gnome-extensions disable "${DTP_UUID}" >/dev/null 2>&1 || true
 gnome-extensions enable "${DTP_UUID}" >/dev/null 2>&1 || true
 
 echo
-echo "============================================================"
+echo "=== DASH TO PANEL SETUP ==="
 echo "Dash to Panel setup complete."
 echo "If the panel does not move to the bottom immediately,"
 echo "FULLY LOG OUT OF YOUR SESSION AND LOG BACK IN."
-echo "============================================================"
+echo

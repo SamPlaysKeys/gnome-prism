@@ -37,21 +37,30 @@ ensure_user_themes_extension() {
   done
 
   if ! ${ext_on_disk}; then
+    echo "User Themes extension not found; attempting to install (requires sudo)." >&2
+    echo "You can skip this by cancelling the password prompt and installing the extension manually later." >&2
     if command -v apt-get >/dev/null 2>&1 || command -v apt >/dev/null 2>&1; then
+      # Debian/Ubuntu
       pkg_cmd="apt-get"
       if command -v apt >/dev/null 2>&1; then
         pkg_cmd="apt"
       fi
-      echo "User Themes extension not found; installing 'gnome-shell-extensions' (requires sudo)." >&2
-      echo "You can skip this by cancelling the password prompt and installing the extension manually later." >&2
       if sudo "${pkg_cmd}" -y install gnome-shell-extensions; then
         ext_on_disk=true
       else
         echo "Warning: failed to install 'gnome-shell-extensions'. Please install it manually to enable Shell theming." >&2
         return 0
       fi
+    elif command -v dnf >/dev/null 2>&1; then
+      # Fedora/RHEL
+      if sudo dnf install -y gnome-shell-extension-user-theme; then
+        ext_on_disk=true
+      else
+        echo "Warning: failed to install 'gnome-shell-extension-user-theme'. Please install it manually to enable Shell theming." >&2
+        return 0
+      fi
     else
-      echo "Warning: User Themes extension not found and no apt-based package manager detected." >&2
+      echo "Warning: User Themes extension not found and no supported package manager detected." >&2
       echo "Please install the GNOME 'User Themes' extension manually to enable Shell theming." >&2
       return 0
     fi
@@ -118,16 +127,20 @@ fi
 
 # Ensure curl is available (needed for font downloads and extension fallback).
 if ! command -v curl >/dev/null 2>&1; then
+  # Check internet connectivity with a neutral target
+  if ! ping -c 1 -W 3 1.1.1.1 >/dev/null 2>&1 && ! ping -c 1 -W 3 8.8.8.8 >/dev/null 2>&1; then
+    echo "Error: no internet connection detected. Please connect to the internet and rerun." >&2
+    exit 1
+  fi
   if command -v apt-get >/dev/null 2>&1; then
-    if ! ping -c 1 -W 3 archive.ubuntu.com >/dev/null 2>&1; then
-      echo "Error: no internet connection detected. Please connect to the internet and rerun." >&2
-      exit 1
-    fi
     echo "curl not found; installing via apt (requires sudo)..."
     sudo apt-get update
     sudo apt-get install -y curl
+  elif command -v dnf >/dev/null 2>&1; then
+    echo "curl not found; installing via dnf (requires sudo)..."
+    sudo dnf install -y curl
   else
-    echo "Error: curl is not installed and no apt-based package manager detected." >&2
+    echo "Error: curl is not installed and no supported package manager detected." >&2
     echo "Please install curl manually and rerun." >&2
     exit 1
   fi
@@ -552,10 +565,14 @@ fi
 if [[ "${PREFIX}" == "${HOME}" ]] && [[ -f "${TILIX_THEME_SCRIPT}" ]]; then
   echo
   echo "=== TILIX COLOR SCHEME ==="
-  if bash "${TILIX_THEME_SCRIPT}"; then
-    echo "Applied Tilix color scheme."
+  if command -v tilix >/dev/null 2>&1 || [[ -d "${HOME}/.config/tilix" ]]; then
+    if bash "${TILIX_THEME_SCRIPT}"; then
+      echo "Applied Tilix color scheme."
+    else
+      echo "Warning: Tilix color scheme install failed; continuing install." >&2
+    fi
   else
-    echo "Warning: Tilix color scheme install failed; continuing install." >&2
+    echo "Tilix not installed; skipping color scheme setup."
   fi
 fi
 
@@ -575,10 +592,14 @@ fi
 if [[ -f "${VIVALDI_THEME_SCRIPT}" ]]; then
   echo
   echo "=== VIVALDI UI MOD ==="
-  if bash "${VIVALDI_THEME_SCRIPT}" --prefix "${PREFIX}"; then
-    echo "Installed Vivaldi UI mod assets."
+  if command -v vivaldi >/dev/null 2>&1 || command -v vivaldi-stable >/dev/null 2>&1 || [[ -d "${HOME}/.config/vivaldi" ]]; then
+    if bash "${VIVALDI_THEME_SCRIPT}" --prefix "${PREFIX}"; then
+      echo "Installed Vivaldi UI mod assets."
+    else
+      echo "Warning: Vivaldi theme helper failed; continuing install." >&2
+    fi
   else
-    echo "Warning: Vivaldi theme helper failed; continuing install." >&2
+    echo "Vivaldi not installed; skipping UI mod setup."
   fi
 fi
 
@@ -595,14 +616,20 @@ fi
 
 cat <<EOF
 
+
+============================================================
+
+
 Installation complete.
 GTK theme, Shell theme, and icons have been applied via gsettings.
 If the User Themes extension was just installed, log out and back in
 for the Shell theme to take effect.
 
-Optional Firefox advanced theming:
+To install/reinstall the optional Firefox advanced theming, run the script located 
+here. Firefox may need to be restarted afterwards to apply the changes.
   ${FIREFOX_USERCHROME_SCRIPT}
 
-Optional Vivaldi UI mod:
+To install/reinstall the optional Vivaldi UI mod, run the following script.
   ${VIVALDI_THEME_SCRIPT}
+Note: Vivaldi may need to be signed in to correctly apply the UI mod.
 EOF
