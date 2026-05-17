@@ -62,7 +62,7 @@ gnome-extensions enable user-theme@gnome-shell-extensions.gcampax.github.com
 ### 3. Clone and install the theme
 
 ```bash
-git clone https://github.com/FrameworkComputer/gnome-prism.git
+git clone https://github.com/zachfeldman/gnome-prism.git
 cd gnome-prism
 ./scripts/install.sh
 ```
@@ -169,7 +169,7 @@ Re-run `./scripts/setup_bottom_panel.sh` after logging in. The Dash to Panel ext
 
 ## Contributing
 
-Contributions are welcome! If you have a bug report, feature request, or question, please [file a GitHub issue](https://github.com/FrameworkComputer/framework-prism/issues).
+Contributions are welcome! If you have a bug report, feature request, or question, please [file a GitHub issue](https://github.com/zachfeldman/framework-prism/issues).
 
 ## Development Notes
 
